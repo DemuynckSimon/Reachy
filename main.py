@@ -5,7 +5,7 @@ import logging
 import threading
 import sys
 import os
-
+from random import randrange
 
 from influxdb_client import InfluxDBClient, Point, WritePrecision
 from influxdb_client.client.write_api import SYNCHRONOUS
@@ -15,16 +15,16 @@ token = "p_dSAag80F3raThL1Hy3CLTZdf_YOCaJXkHH2hOYF5zTuGUuAcmE-9RZcK7qUCh0hrTlAY-
 org = "howest"
 bucket = "iot_bucket"
 
-client = InfluxDBClient(url="http://172.23.83.63:8086", token=token)
+client = InfluxDBClient(url="http://172.23.83.68:8086", token=token)
 
 write_api = client.write_api(write_options=SYNCHRONOUS)
 
 
 def sendDataToInfluxDB(motor, temp):
-    data = "Reachy,host={} used_percent={}".format(motor, temp)
+    data = "Reachy,host={} Temperature={}".format(motor, temp)
     write_api.write(bucket, org, data)
     sleep(0.7)
-    print(data)
+    #print(data)
 
 
 r = Reachy(
@@ -159,30 +159,22 @@ def MainChoice():
         print("Invalid input! must be yes/no")
         MainChoice()
 
-
 def GetMotorTemps():
     while True:
-        for motor in r.right_arm.motors:
-            sleep(0.5)
-            #sendDataToInfluxDB(motor.name, motor.temperature)
+        for motor in r.motors:
+            sleep(0.2)
+            sendDataToInfluxDB(motor.name, motor.temperature) #use motor.temperature for live temps
             if  motor.temperature > 45:
                 print("Fan for", motor.name, "was triggered. Temp:", motor.temperature)
             if motor.temperature >= 53:
-                print("Motor Temperature for", motor.name, "CRITICAL! Temp:", motor.temperature)
-            
-        for motor in r.left_arm.motors:
-            sleep(0.5)
-            #sendDataToInfluxDB(motor.name, motor.temperature)
-            if  motor.temperature > 45:
-                print("Fan for", motor.name, "was triggered. Temp:", motor.temperature)
-            if motor.temperature >= 53:
-                print("Motor Temperature for", motor.name, "CRITICAL! Temp:", motor.temperature)        
+                print("Motor Temperature for", motor.name, "CRITICAL! Temp:", motor.temperature)    
 
 def main():
     try:
         TempThread.start()
         MainChoice()
         MainHandShake()
+        main()
     except:
         print("Something went wrong!")
 
