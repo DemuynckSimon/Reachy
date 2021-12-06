@@ -5,10 +5,12 @@ import logging
 import threading
 import sys
 import os
-from random import randrange
-
+import json
 from influxdb_client import InfluxDBClient, Point, WritePrecision
 from influxdb_client.client.write_api import SYNCHRONOUS
+import paho.mqtt.client as mqtt
+
+
 
 
 token = "p_dSAag80F3raThL1Hy3CLTZdf_YOCaJXkHH2hOYF5zTuGUuAcmE-9RZcK7qUCh0hrTlAY-ttBb7v_arhfU7sg=="
@@ -24,7 +26,7 @@ def sendDataToInfluxDB(motor, temp):
     data = "Reachy,host={} Temperature={}".format(motor, temp)
     write_api.write(bucket, org, data)
     sleep(0.7)
-    #print(data)
+    #print(data) influxdb debug
 
 
 r = Reachy(
@@ -123,68 +125,74 @@ def HandShake(Choice):
         r.right_arm.hand.wrist_roll.goto(goal_position=0, duration=0.5, wait=True)
         r.right_arm.elbow_pitch.compliant = False #Arm terug naar non compliant
 
+def GetMotorTemps():
+    while True:
+        for motor in r.right_arm.motors:
+            sleep(0.5)
+            sendDataToInfluxDB(motor.name, motor.temperature)
+            if  motor.temperature > 45:
+                print("Fan for", motor.name, "was triggered. Temp:", motor.temperature)
+            if motor.temperature >= 53:
+                print("Motor Temperature for", motor.name, "CRITICAL! Temp:", motor.temperature)
+            
+        for motor in r.left_arm.motors:
+            sleep(0.5)
+            sendDataToInfluxDB(motor.name, motor.temperature)
+            if  motor.temperature > 45:
+                print("Fan for", motor.name, "was triggered. Temp:", motor.temperature)
+            if motor.temperature >= 53:
+                print("Motor Temperature for", motor.name, "CRITICAL! Temp:", motor.temperature)        
 
-def MainHandShake():
-    print("Running HandShake")
-    choice2 = input("Handshake on left arm, or right? (left/right): ")
-    choice2 = choice2.lower()
-    if choice2 == "left":
-        HandShake("left_arm")
-        MoveToStandard("left_arm")
-        CloseHands()
-    elif choice2 == "right":
-        HandShake("right_arm")
-        MoveToStandard("right_arm")
-        CloseHands()
-    else:
-        print("Invalid input! must be right/left")
-        MainHandShake()
 
-def MainChoice():
-    CloseHands()
-    choice = input("Does reachy agree? (yes/no): ")
-    choice = choice.lower()
-    if choice == "yes":
-        print("Reachy agreed")
+
+
+
+def on_connect(client, userdata, flags, rc):
+    print("Connecting...")
+    # Subscribing in on_connect() means that if we lose the connection and
+    # reconnect then subscriptions will be renewed.
+    client.subscribe("reachy/#")
+    print("Subscribed top topic")
+
+
+def on_message(client, userdata, msg):
+    decoded = msg.payload.decode("utf-8","ignore")
+    print("Received message from MQTT:", decoded)
+
+    if decoded == "agree":
         NodHead()
-    elif choice == "no":
-        print("Running CrossingArms")
+    elif decoded == "disagree":
         CrossingArms()
         ShakeHead()
         MoveToStandard("right_arm")
         sleep(0.5)
         MoveToStandard("left_arm")
         sleep(3)
-    else:
-        print("Invalid input! must be yes/no")
-        MainChoice()
-
-def GetMotorTemps():
-    while True:
-        for motor in r.motors:
-            sleep(0.2)
-            sendDataToInfluxDB(motor.name, motor.temperature) #use motor.temperature for live temps
-            if  motor.temperature > 45:
-                print("Fan for", motor.name, "was triggered. Temp:", motor.temperature)
-            if motor.temperature >= 53:
-                print("Motor Temperature for", motor.name, "CRITICAL! Temp:", motor.temperature)    
-
-def main():
-    try:
-        TempThread.start()
-        MainChoice()
-        MainHandShake()
-        main()
-    except:
-        print("Something went wrong!")
+    elif decoded == "left":
+        HandShake("left_arm")
+        MoveToStandard("left_arm")
+        CloseHands()
+    elif decoded == "right":
+        HandShake("right_arm")
+        MoveToStandard("right_arm")
+        CloseHands()
 
 
-if __name__ == "__main__":
-    try:
-        main()
-    except KeyboardInterrupt:
-        print('Interrupted')
-    try:
-        sys.exit(0)
-    except SystemExit:
-        os._exit(0)
+try:
+    client = mqtt.Client()
+    print("Attempting connection to RasberryPi")
+    client.on_connect = on_connect
+    client.on_message = on_message
+    TempThread.start()
+    print("Started logging of motor temps to influx")
+
+    client.connect("192.168.0.122", 1883, 60) #Wireless IP van Pi
+    client.loop_forever()
+except KeyboardInterrupt:
+    print('Interrupted')
+try:
+    sys.exit(0)
+except SystemExit:
+    os._exit(0)
+except:
+    print("Something went wrong!")
